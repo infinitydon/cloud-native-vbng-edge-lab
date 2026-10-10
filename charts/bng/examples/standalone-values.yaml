@@ -1,0 +1,15 @@
+osvbng:
+  nodeAffinity:
+    matchLabels:
+      osvbng.infinitydon.com/bng-frr-ha: "true"
+  standalone:
+    coreAddress: 192.168.88.10/24
+  cgnat:
+    outsideAddresses:
+      - 192.168.88.11
+      - 192.168.88.12
+      - 192.168.88.13
+      - 192.168.88.14
+      - 192.168.88.15
+  ha:
+    enabled: false

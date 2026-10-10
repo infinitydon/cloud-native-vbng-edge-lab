@@ -1,0 +1,213 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: osvbng
+spec:
+  serviceName: osvbng-headless
+  replicas: {{ ternary (len .Values.osvbng.ha.members) 1 .Values.osvbng.ha.enabled }}
+  # Keep immutable StatefulSet fields identical across standalone/HA mode
+  # transitions. Parallel is also required for simultaneous HA peer startup.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: osvbng
+  template:
+    metadata:
+      labels:
+        app: osvbng
+      annotations:
+        checksum/entrypoint: {{ include (print $.Template.BasePath "/osvbng-entrypoint-cm.yaml") . | sha256sum }}
+        checksum/members: {{ include (print $.Template.BasePath "/osvbng-members-cm.yaml") . | sha256sum }}
+        checksum/osvbng-config: {{ include (print $.Template.BasePath "/osvbngconf.yaml") . | sha256sum }}
+        checksum/dataplane-config: {{ include (print $.Template.BasePath "/dataplane-conf.yaml") . | sha256sum }}
+        checksum/frr-config: {{ include (print $.Template.BasePath "/frr-conf.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.osvbng.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                {{- range $key, $value := .Values.osvbng.nodeAffinity.matchLabels }}
+                  - key: {{ $key }}
+                    operator: In
+                    values:
+                      - {{ $value | quote }}
+                {{- end }}
+      {{- if .Values.osvbng.ha.enabled }}
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: osvbng
+              topologyKey: kubernetes.io/hostname
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: osvbng
+          image: {{ .Values.osvbng.image | quote }}
+          imagePullPolicy: {{ .Values.osvbng.pullPolicy }}
+          command: ["/scripts/docker-entrypoint.sh"]
+          resources:
+            requests:
+              memory: {{ .Values.osvbng.resources.memory }}
+              cpu: {{ .Values.osvbng.resources.cpu }}
+              hugepages-1Gi: {{ .Values.osvbng.resources.hugepages1Gi }}
+              {{ .Values.osvbng.dpdk.resourceName | quote }}: 2
+            limits:
+              memory: {{ .Values.osvbng.resources.memory }}
+              cpu: {{ .Values.osvbng.resources.cpu }}
+              hugepages-1Gi: {{ .Values.osvbng.resources.hugepages1Gi }}
+              {{ .Values.osvbng.dpdk.resourceName | quote }}: 2
+          securityContext:
+            privileged: {{ .Values.osvbng.privileged }}
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - NET_ADMIN
+                - IPC_LOCK
+                - SYS_NICE
+                - SYS_RAWIO
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_INDEX
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+          - name: OSVBNG_CPU_COUNT
+            valueFrom:
+              resourceFieldRef:
+                containerName: osvbng
+                resource: limits.cpu
+                divisor: "1"
+          - name: OSVBNG_DPDK_RX_QUEUES
+            value: {{ .Values.osvbng.dpdk.rxQueues | quote }}
+          - name: OSVBNG_DPDK_TX_QUEUES
+            value: {{ .Values.osvbng.dpdk.txQueues | quote }}
+          - name: OSVBNG_DPDK_SOCKET_MEMORY
+            value: {{ .Values.osvbng.dpdk.socketMemory | quote }}
+          - name: OSVBNG_CORE_ADDRESS
+            {{- if .Values.osvbng.ha.enabled }}
+            value: ""
+            {{- else }}
+            value: {{ required "osvbng.standalone.coreAddress is required when HA is disabled" .Values.osvbng.standalone.coreAddress | quote }}
+            {{- end }}
+          - name: OSVBNG_CORE_NEXT_HOP
+            value: {{ .Values.osvbng.core.nextHop | quote }}
+          - name: OSVBNG_INSTALL_DEFAULT_ROUTE
+            value: {{ .Values.osvbng.core.installDefaultRoute | quote }}
+          {{- if .Values.radius.enabled }}
+          - name: RADIUS_SHARED_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: {{ required "radius.existingSecret is required when RADIUS is enabled" .Values.radius.existingSecret }}
+                key: {{ .Values.radius.sharedSecretKey }}
+          {{- end }}
+          ports:
+          - name: grpc
+            containerPort: {{ .Values.osvbng.ports.grpc }}
+          - name: ha
+            containerPort: {{ .Values.osvbng.ports.ha }}
+          - name: prometheus
+            containerPort: {{ .Values.osvbng.ports.prometheus }}
+          - name: http
+            containerPort: {{ .Values.osvbng.ports.http }}
+          startupProbe:
+            exec:
+              command: ["vppctl", "-s", "/run/osvbng/cli.sock", "show", "version"]
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["vppctl", "-s", "/run/osvbng/cli.sock", "show", "version"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          volumeMounts:
+          - name: entrypoint-script
+            mountPath: /scripts
+          # Mount FRR configs to staging directory instead of /etc/frr directly
+          - name: frr-config
+            mountPath: /frr-config-templates
+            readOnly: true
+          - name: config-templates
+            mountPath: /config-templates
+          {{- if .Values.osvbng.ha.enabled }}
+          - name: member-config
+            mountPath: /member-config
+            readOnly: true
+          {{- end }}
+          - name: hugepages
+            mountPath: /dev/hugepages
+          - name: config-versions
+            mountPath: /var/lib/osvbng/config-versions
+          {{- if .Values.osvbng.mountSysKernelDebug }}
+          - name: sys-kernel-debug
+            mountPath: /sys/kernel/debug
+            readOnly: true
+          {{- end }}
+          - name: dshm
+            mountPath: /dev/shm
+          - name: tun
+            mountPath: /dev/net/tun
+          {{- if .Values.osvbng.bgp.enabled }}
+          - name: frr-run
+            mountPath: /var/run/frr
+          {{- end }}
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: osvbng-entrypoint
+          defaultMode: 0755
+      - name: frr-config
+        configMap:
+          name: frr-config
+      - name: config-templates
+        projected:
+          sources:
+          - configMap:
+              name: osvbng-dataplane-template
+          - configMap:
+              name: osvbng-config-template
+      {{- if .Values.osvbng.ha.enabled }}
+      - name: member-config
+        configMap:
+          name: osvbng-members
+      {{- end }}
+      - name: config-versions
+        emptyDir: {}
+      {{- if .Values.osvbng.mountSysKernelDebug }}
+      - name: sys-kernel-debug
+        hostPath:
+          path: /sys/kernel/debug
+          type: Directory
+      {{- end }}
+      - name: hugepages
+        emptyDir:
+          medium: HugePages
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: {{ .Values.osvbng.shmSize }}
+      - name: tun
+        hostPath:
+          path: /dev/net/tun
+          type: CharDevice
+      {{- if .Values.osvbng.bgp.enabled }}
+      - name: frr-run
+        emptyDir: {}
+      {{- end }}

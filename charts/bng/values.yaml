@@ -1,0 +1,135 @@
+osvbng:
+  image: "docker.io/veesixnetworks/osvbng:v0.16.0@sha256:d343e3e6f1bec38e011cda569fc799ab99927aee189e6a7dd45c073a5a462782"
+  pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  privileged: true
+  serviceType: ClusterIP
+  ports:
+    grpc: 50050
+    ha: 50051
+    prometheus: 9090
+    http: 8080
+  mountSysKernelDebug: true
+  shmSize: "2Gi"
+  resources:
+    cpu: "6"
+    memory: "6Gi"
+    hugepages1Gi: "2Gi"
+  nodeAffinity:
+    matchLabels:
+      osvbng.infinitydon.com/bng-frr-ha: "true"
+  standalone:
+    # Direct-L2 profile. The routed HA examples override core addressing,
+    # next hop, CGNAT pool, and BGP together.
+    coreAddress: "192.168.88.10/24"
+  core:
+    nextHop: "192.168.88.1"
+    installDefaultRoute: true
+  bgp:
+    enabled: false
+    # Advertise the private subscriber pool only for explicitly routed,
+    # non-CGNAT services. CGNAT Internet access needs only cgnatPrefix.
+    advertiseSubscriberPrefix: false
+    localAs: 65010
+    peerAs: 65020
+    neighbors: []
+    cgnatPrefix: ""
+    bfd: true
+    pollIntervalSeconds: 2
+  cgnat:
+    enabled: true
+    policy: residential
+    outsideInterface: core
+    # Answer ARP for same-subnet CGNAT addresses on the outside interface.
+    # Disable this when the upstream router has explicit routes to the pool.
+    proxyArp: true
+    insideNetwork: 10.255.0.0/24
+    outsideAddresses:
+      - 192.168.88.11
+      - 192.168.88.12
+      - 192.168.88.13
+      - 192.168.88.14
+      - 192.168.88.15
+    blockSize: 512
+    maxBlocksPerSubscriber: 2
+    maxSessionsPerSubscriber: 2000
+  ha:
+    enabled: false
+    listenAddress: "0.0.0.0:50051"
+    # Direct-L2 fallback members. Use examples/ha-values.yaml or the FRR
+    # integration profile for the current routed HA design.
+    # Addresses are explicit and tied to StatefulSet identity, not calculated.
+    members:
+      - nodeId: bng-a
+        coreAddress: 192.168.88.10/24
+        priority: 100
+        preempt: false
+      - nodeId: bng-b
+        coreAddress: 192.168.88.11/24
+        priority: 90
+        preempt: true
+    heartbeat:
+      interval: 1s
+      timeout: 5s
+    sync:
+      backlogSize: 10000
+      pageSize: 1000
+      bulkSyncTimeout: 60s
+    srg:
+      name: default
+      virtualMac: "02:00:5e:00:01:01"
+      subscriberGroups:
+        - default
+      interfaces:
+        - access
+      trackPriorityDecrement: 60
+      networks: []
+  dpdk:
+    enabled: true
+    # Allocated by the standalone SR-IOV Network Device Plugin prerequisite.
+    resourceName: qemu-virtio-dpdk.dev/osvbng_vfio
+    rxQueues: 2
+    txQueues: 2
+    socketMemory: "1024"
+
+# Optional subscriber AAA profile. When disabled, osvbng uses its local
+# allow-all provider and no FreeRADIUS or PostgreSQL resources are rendered.
+radius:
+  enabled: false
+  # Lab-only deterministic MAC identities used by the separate cpe-lab chart.
+  autoProvisionSubscriberUsers: true
+  subscriberCapacity: 20
+  existingSecret: ""
+  sharedSecretKey: shared-secret
+  clientNetwork: 10.1.0.0/16
+  image: "freeradius/freeradius-server:3.2.7@sha256:42b05de4405b1e745686b9ed0f70307fd43e998b850b3e6bd936733a8c260595"
+  pullPolicy: IfNotPresent
+  authPort: 1812
+  accountingPort: 1813
+  interimInterval: 60
+  ipoePassword: secret
+  bootstrapUsers: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  postgresql:
+    image: "postgres:17.10-bookworm@sha256:4f736ae292687621d4dbe0d499ffd024a36bd2ee7d8ca6f2ccd4c800f047b394"
+    pullPolicy: IfNotPresent
+    passwordKey: postgres-password
+    database: radius
+    username: radius
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi

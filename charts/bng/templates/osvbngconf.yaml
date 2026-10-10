@@ -1,0 +1,242 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osvbng-config-template
+data:
+  osvbng.yaml.template: |
+    logging:
+      format: text
+      level: info
+      components:
+        aaa: info
+        dataplane: info
+        ipoe: info
+        pppoe: info
+        subscriber: info
+    subscriber-groups:
+      groups:
+        default:
+          access-type: ipoe
+          vlan-tpid: dot1q
+          ipv4-profile: default
+          vlans:
+            - svlan: "100"
+              cvlan: any
+              interface: loop100
+              parent-interface: access
+              access-types: [ipoe]
+          bgp:
+            enabled: false
+            advertise-pools: false
+            redistribute-connected: false
+          aaa-policy: default-policy
+          {{- if .Values.osvbng.cgnat.enabled }}
+          cgnat:
+            policy: {{ .Values.osvbng.cgnat.policy }}
+          {{- end }}
+    {{- if .Values.osvbng.cgnat.enabled }}
+    cgnat:
+      pools:
+        {{ .Values.osvbng.cgnat.policy }}:
+          outside_interfaces:
+            - {{ .Values.osvbng.cgnat.outsideInterface }}
+          mode: pba
+          inside-prefixes:
+            - prefix: {{ .Values.osvbng.cgnat.insideNetwork }}
+          outside-addresses:
+            {{- toYaml .Values.osvbng.cgnat.outsideAddresses | nindent 12 }}
+          block-size: {{ .Values.osvbng.cgnat.blockSize }}
+          max-blocks-per-subscriber: {{ .Values.osvbng.cgnat.maxBlocksPerSubscriber }}
+          max-sessions-per-subscriber: {{ .Values.osvbng.cgnat.maxSessionsPerSubscriber }}
+          address-pooling: paired
+          filtering: endpoint-independent
+    {{- end }}
+    ipv4-profiles:
+      default:
+        gateway: 10.255.0.1
+        dns:
+          - 8.8.8.8
+          - 8.8.4.4
+        pools:
+          - name: subscriber-pool
+            network: 10.255.0.0/24
+            range_start: 10.255.0.2
+            range_end: 10.255.0.254
+            gateway: 10.255.0.1
+            priority: 1
+        dhcp:
+          lease-time: 3600
+    dhcp:
+      provider: local
+    {{- if .Values.osvbng.ha.enabled }}
+    ha:
+      enabled: true
+      node_id: "__HA_NODE_ID__"
+      listen:
+        address: {{ .Values.osvbng.ha.listenAddress | quote }}
+      peer:
+        address: "__HA_PEER_ADDRESS__"
+      heartbeat:
+        interval: {{ .Values.osvbng.ha.heartbeat.interval }}
+        timeout: {{ .Values.osvbng.ha.heartbeat.timeout }}
+      sync:
+        backlog_size: {{ .Values.osvbng.ha.sync.backlogSize }}
+        page_size: {{ .Values.osvbng.ha.sync.pageSize }}
+        bulk_sync_timeout: {{ .Values.osvbng.ha.sync.bulkSyncTimeout }}
+      srgs:
+        {{ .Values.osvbng.ha.srg.name }}:
+          virtual_mac: {{ .Values.osvbng.ha.srg.virtualMac | quote }}
+          priority: __HA_PRIORITY__
+          preempt: __HA_PREEMPT__
+          subscriber_groups:
+            {{- toYaml .Values.osvbng.ha.srg.subscriberGroups | nindent 12 }}
+          interfaces:
+            {{- toYaml .Values.osvbng.ha.srg.interfaces | nindent 12 }}
+          track_priority_decrement: {{ .Values.osvbng.ha.srg.trackPriorityDecrement }}
+          {{- if or .Values.osvbng.bgp.advertiseSubscriberPrefix .Values.osvbng.ha.srg.networks }}
+          networks:
+            {{- if .Values.osvbng.bgp.advertiseSubscriberPrefix }}
+            - prefix: {{ .Values.osvbng.cgnat.insideNetwork }}
+            {{- end }}
+            {{- with .Values.osvbng.ha.srg.networks }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+    {{- end }}
+    interfaces:
+      access:
+        description: DPDK subscriber access
+        enabled: true
+        bng_mode: access
+      core:
+        description: DPDK core interface
+        enabled: true
+        lcp: true
+        address:
+          ipv4:
+            - __CORE_ADDRESS__
+      loop100:
+        description: Subscriber gateway
+        enabled: true
+        address:
+          ipv4:
+            - 10.255.0.1/32
+        lcp: true
+    protocols:
+      bgp:
+        asn: {{ ternary .Values.osvbng.bgp.localAs 65000 .Values.osvbng.bgp.enabled }}
+        router-id: {{ ternary "__CORE_ROUTER_ID__" "10.255.0.1" .Values.osvbng.bgp.enabled }}
+        {{- if .Values.osvbng.bgp.enabled }}
+        neighbors:
+          {{- range .Values.osvbng.bgp.neighbors }}
+          {{ .address }}:
+            remote-as: {{ $.Values.osvbng.bgp.peerAs }}
+            description: {{ printf "FRR ISP %s" .name | quote }}
+            bfd: {{ $.Values.osvbng.bgp.bfd }}
+            ipv4-unicast:
+              route-policy-in: OSVBNG-IMPORT-DEFAULT
+              route-policy-out: OSVBNG-EXPORT
+          {{- end }}
+        ipv4-unicast:
+          networks: {}
+        {{- end }}
+      {{- if and .Values.osvbng.bgp.enabled .Values.osvbng.bgp.cgnatPrefix }}
+      static:
+        ipv4:
+          - destination: {{ .Values.osvbng.bgp.cgnatPrefix }}
+            device: Null0
+      {{- end }}
+    {{- if .Values.osvbng.bgp.enabled }}
+    routing-policies:
+      prefix-sets:
+        DEFAULT-ONLY:
+          - prefix: 0.0.0.0/0
+            action: permit
+        {{- if or .Values.osvbng.bgp.cgnatPrefix .Values.osvbng.bgp.advertiseSubscriberPrefix }}
+        OSVBNG-EXPORT-ALLOWED:
+          {{- if .Values.osvbng.bgp.cgnatPrefix }}
+          - prefix: {{ .Values.osvbng.bgp.cgnatPrefix }}
+            action: permit
+          {{- end }}
+          {{- if .Values.osvbng.bgp.advertiseSubscriberPrefix }}
+          - prefix: {{ .Values.osvbng.cgnat.insideNetwork }}
+            action: permit
+          {{- end }}
+        {{- end }}
+      route-policies:
+        OSVBNG-IMPORT-DEFAULT:
+          - sequence: 10
+            action: permit
+            match:
+              prefix-set: DEFAULT-ONLY
+          - sequence: 100
+            action: deny
+        OSVBNG-EXPORT:
+          {{- if or .Values.osvbng.bgp.cgnatPrefix .Values.osvbng.bgp.advertiseSubscriberPrefix }}
+          - sequence: 10
+            action: permit
+            match:
+              prefix-set: OSVBNG-EXPORT-ALLOWED
+          {{- end }}
+          - sequence: 100
+            action: deny
+    {{- end }}
+    aaa:
+      {{- if .Values.radius.enabled }}
+      auth_provider: radius
+      {{- else }}
+      auth_provider: local
+      {{- end }}
+      nas_identifier: osvbng
+      policy:
+        - name: default-policy
+          format: $mac-address$
+          {{- if .Values.radius.enabled }}
+          password: {{ .Values.radius.ipoePassword | quote }}
+          {{- end }}
+          max_concurrent_sessions: 1
+    plugins:
+      exporter.prometheus:
+        enabled: true
+        listen_address: :9090
+      northbound.api:
+        enabled: true
+        listeners:
+          - address: :8080
+      {{- if .Values.radius.enabled }}
+      subscriber.auth.radius:
+        auth_port: {{ .Values.radius.authPort }}
+        acct_port: {{ .Values.radius.accountingPort }}
+        servers:
+          - host: osvbng-freeradius
+            secret: "__RADIUS_SHARED_SECRET__"
+      {{- else }}
+      subscriber.auth.local:
+        allow_all: true
+        database_path: /var/lib/osvbng/subscribers.db
+      {{- end }}
+    dataplane:
+      lcp-netns: dataplane
+      statseg:
+        size: "256m"
+        page-size: "4k"
+        per-node-counters: false
+    watchdog:
+      enabled: true
+      check-interval: 3s
+      targets:
+        vpp:
+          enabled: true
+          timeout: 2s
+          failure-threshold: 3
+          on-failure: restart
+          min-restart-interval: 30s
+          reconnect-backoff: 2s
+          reconnect-max-backoff: 30s
+          critical: true
+        frr:
+          enabled: true
+          timeout: 2s
+          failure-threshold: 3
+          on-failure: warn
+          critical: false

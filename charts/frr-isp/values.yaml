@@ -1,0 +1,64 @@
+image:
+  repository: quay.io/frrouting/frr
+  tag: "10.7.0"
+  digest: "sha256:a0ed0e4f8727631c8303dd9a4e8199b47464a17a5253135a2c622286aeaec46b"
+  pullPolicy: IfNotPresent
+
+upstream:
+  gateway: 192.168.88.1
+  bgp:
+    enabled: true
+    peerAs: 65030
+    neighbor: 192.168.88.1
+    bfd: false
+
+cgnat:
+  prefix: 100.64.100.0/24
+  # Used only by the non-BGP fallback route.
+  staticNextHop: 172.31.255.2
+
+bgp:
+  enabled: true
+  localAs: 65020
+  peerAs: 65010
+  # Enable after validating BFD timers against the virtual L2. Plain BGP is
+  # the interoperable default for this lab profile.
+  bfd: false
+  bngNeighbors:
+    - address: 172.31.255.2
+      description: OSVBNG-A
+    - address: 172.31.255.3
+      description: OSVBNG-B
+
+clusterServiceCidr: 10.152.183.0/24
+
+nodeAffinity:
+  matchLabels:
+    osvbng.infinitydon.com/bng-frr-ha: "true"
+
+macvlan:
+  parent: enp8s19
+
+members:
+  - name: a
+    core:
+      address: 172.31.255.4/29
+      mac: "02:31:ff:00:00:04"
+    uplink:
+      address: 192.168.88.12/24
+      mac: "02:31:ff:00:00:0c"
+  - name: b
+    core:
+      address: 172.31.255.5/29
+      mac: "02:31:ff:00:00:05"
+    uplink:
+      address: 192.168.88.13/24
+      mac: "02:31:ff:00:00:0d"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
