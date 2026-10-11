@@ -18,54 +18,44 @@ osvbng:
   nodeAffinity:
     matchLabels:
       osvbng.infinitydon.com/bng-frr-ha: "true"
-  standalone:
-    # Direct-L2 profile. The routed HA examples override core addressing,
-    # next hop, CGNAT pool, and BGP together.
-    coreAddress: "192.168.88.10/24"
   core:
-    nextHop: "192.168.88.1"
-    installDefaultRoute: true
+    installDefaultRoute: false
   bgp:
-    enabled: false
+    enabled: true
     # Advertise the private subscriber pool only for explicitly routed,
     # non-CGNAT services. CGNAT Internet access needs only cgnatPrefix.
     advertiseSubscriberPrefix: false
     localAs: 65010
     peerAs: 65020
-    neighbors: []
-    cgnatPrefix: ""
-    bfd: true
+    neighbors:
+      - name: frr-a
+        address: 172.31.255.4
+      - name: frr-b
+        address: 172.31.255.5
+    cgnatPrefix: "100.64.100.0/24"
+    bfd: false
     pollIntervalSeconds: 2
   cgnat:
     enabled: true
     policy: residential
     outsideInterface: core
-    # Answer ARP for same-subnet CGNAT addresses on the outside interface.
-    # Disable this when the upstream router has explicit routes to the pool.
-    proxyArp: true
+    proxyArp: false
     insideNetwork: 10.255.0.0/24
     outsideAddresses:
-      - 192.168.88.11
-      - 192.168.88.12
-      - 192.168.88.13
-      - 192.168.88.14
-      - 192.168.88.15
+      - 100.64.100.0/24
     blockSize: 512
     maxBlocksPerSubscriber: 2
     maxSessionsPerSubscriber: 2000
   ha:
-    enabled: false
     listenAddress: "0.0.0.0:50051"
-    # Direct-L2 fallback members. Use examples/ha-values.yaml or the FRR
-    # integration profile for the current routed HA design.
-    # Addresses are explicit and tied to StatefulSet identity, not calculated.
+    # Addresses are explicit and tied to StatefulSet identity.
     members:
       - nodeId: bng-a
-        coreAddress: 192.168.88.10/24
+        coreAddress: 172.31.255.2/29
         priority: 100
         preempt: false
       - nodeId: bng-b
-        coreAddress: 192.168.88.11/24
+        coreAddress: 172.31.255.3/29
         priority: 90
         preempt: true
     heartbeat:
@@ -83,10 +73,11 @@ osvbng:
       interfaces:
         - access
       trackPriorityDecrement: 60
-      networks: []
+      networks:
+        - prefix: 100.64.100.0/24
   dpdk:
     enabled: true
-    # Allocated by the standalone SR-IOV Network Device Plugin prerequisite.
+    # Allocated by the separately installed SR-IOV Network Device Plugin.
     resourceName: qemu-virtio-dpdk.dev/osvbng_vfio
     rxQueues: 2
     txQueues: 2

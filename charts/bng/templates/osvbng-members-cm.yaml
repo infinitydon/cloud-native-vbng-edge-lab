@@ -1,7 +1,5 @@
-{{- if .Values.osvbng.ha.enabled }}
 {{- if ne (len .Values.osvbng.ha.members) 2 }}
 {{- fail "osvbng.ha.members must contain exactly two members" }}
-{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

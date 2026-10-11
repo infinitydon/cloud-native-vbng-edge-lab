@@ -39,7 +39,7 @@ This is the same eligible worker pool used by the BNG StatefulSet. Both core
 and upstream macvlan attachments use the single `enp8s19` parent; there is no
 `nodeName` pinning.
 
-There are no VRRP VIPs. MikroTik installs ECMP paths through `.250` and `.251`,
+There are no VRRP VIPs. MikroTik installs ECMP paths through `.12` and `.13`,
 and each BNG installs ECMP defaults through `172.31.255.4` and `.5`.
 The FRR macvlan interfaces use stable explicit MAC addresses so BGP can
 re-establish immediately after a pod replacement. Proxy ARP is disabled; it
@@ -62,39 +62,16 @@ When `bgp.enabled` is `false`, the chart installs a static fallback route for
 address of the BNG that should receive traffic in non-BGP mode. This fallback
 does not provide automatic BNG failover.
 
-`bng-values.yaml` is an integration values file for the separate `bng` Helm
-release. It moves the BNG core interfaces to the transit subnet, disables the
-static default route, enables both BGP peers, disables proxy ARP, and keeps the
-CGNAT addresses in the routed pool. The FRR chart cannot change another Helm
-release's values.
+The BNG chart's main `values.yaml` already contains the matching transit,
+CGNAT, and BGP settings.
 
-## HA behavior in this Kubernetes lab
-
-Keep `preempt` disabled on the preferred member and enable it on the secondary
-member. A tracked-interface priority change
-can move the SRG and BGP routes from `STANDBY` to `ACTIVE`, but v0.16 restores
-synced subscriber sessions only when promotion starts in `STANDBY_ALONE`.
-
-For a hard failure, prevent the StatefulSet from immediately recreating the
-failed higher-priority member, wait for the survivor to reach
-`STANDBY_ALONE`, and then call:
+Automatic recovery of subscriber forwarding after a hard BNG failure is still
+being improved upstream. Validate it with the selected OSVBNG release and the
+target switching environment before production use.
 
 ```shell
-curl -sS -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"force":true,"srg_names":["default"]}' \
-  http://osvbng-1.osvbng-headless:8080/api/exec/ha/switchover
-```
-
-The v0.16 forced-promotion path restores synchronized subscriber and CGNAT
-state. End-to-end forwarding additionally depends on the upstream L2 domain
-learning the SRG virtual MAC on the survivor. Validate that MAC movement on
-the target VirtIO or physical switching platform before treating the profile
-as production HA.
-
-```shell
-helm upgrade osvbng ./helm-chart/bng --namespace osvbng-ha \
-  --reuse-values -f ./helm-chart/frr-isp/bng-values.yaml --wait
+helm upgrade --install osvbng ./helm-chart/bng \
+  --namespace osvbng-ha --create-namespace --wait
 
 helm upgrade --install osvbng-frr-isp ./helm-chart/frr-isp \
   --namespace osvbng-ha --create-namespace --wait
@@ -109,11 +86,3 @@ kubectl exec -n osvbng-ha deploy/osvbng-frr-isp-a -c frr -- \
 kubectl exec -n osvbng-ha osvbng-0 -c osvbng -- \
   vtysh -c "show bgp ipv4 unicast summary"
 ```
-
-During a tested hard loss of the active BNG, OSVBNG 0.16 placed the remaining
-member in `STANDBY_ALONE` rather than `ACTIVE`. The sidecar deliberately
-withdraws the prefix in that state, preventing return traffic from being sent
-to a standby dataplane. FRR-router failover is independently functional and
-was validated with all 20 UE probes passing after one router was removed and
-again after it rejoined. BNG automatic promotion requires an
-upstream OSVBNG HA change or a supported witness/fencing design.

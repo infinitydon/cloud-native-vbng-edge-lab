@@ -68,7 +68,6 @@ data:
           lease-time: 3600
     dhcp:
       provider: local
-    {{- if .Values.osvbng.ha.enabled }}
     ha:
       enabled: true
       node_id: "__HA_NODE_ID__"
@@ -102,7 +101,6 @@ data:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           {{- end }}
-    {{- end }}
     interfaces:
       access:
         description: DPDK subscriber access

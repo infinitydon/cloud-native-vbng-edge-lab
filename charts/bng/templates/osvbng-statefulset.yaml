@@ -4,9 +4,8 @@ metadata:
   name: osvbng
 spec:
   serviceName: osvbng-headless
-  replicas: {{ ternary (len .Values.osvbng.ha.members) 1 .Values.osvbng.ha.enabled }}
-  # Keep immutable StatefulSet fields identical across standalone/HA mode
-  # transitions. Parallel is also required for simultaneous HA peer startup.
+  replicas: {{ len .Values.osvbng.ha.members }}
+  # Parallel startup lets both HA peers become available together.
   podManagementPolicy: Parallel
   selector:
     matchLabels:
@@ -37,14 +36,12 @@ spec:
                     values:
                       - {{ $value | quote }}
                 {{- end }}
-      {{- if .Values.osvbng.ha.enabled }}
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
                   app: osvbng
               topologyKey: kubernetes.io/hostname
-      {{- end }}
       terminationGracePeriodSeconds: 30
       containers:
         - name: osvbng
@@ -97,13 +94,9 @@ spec:
           - name: OSVBNG_DPDK_SOCKET_MEMORY
             value: {{ .Values.osvbng.dpdk.socketMemory | quote }}
           - name: OSVBNG_CORE_ADDRESS
-            {{- if .Values.osvbng.ha.enabled }}
             value: ""
-            {{- else }}
-            value: {{ required "osvbng.standalone.coreAddress is required when HA is disabled" .Values.osvbng.standalone.coreAddress | quote }}
-            {{- end }}
           - name: OSVBNG_CORE_NEXT_HOP
-            value: {{ .Values.osvbng.core.nextHop | quote }}
+            value: {{ default "" .Values.osvbng.core.nextHop | quote }}
           - name: OSVBNG_INSTALL_DEFAULT_ROUTE
             value: {{ .Values.osvbng.core.installDefaultRoute | quote }}
           {{- if .Values.radius.enabled }}
@@ -146,11 +139,9 @@ spec:
             readOnly: true
           - name: config-templates
             mountPath: /config-templates
-          {{- if .Values.osvbng.ha.enabled }}
           - name: member-config
             mountPath: /member-config
             readOnly: true
-          {{- end }}
           - name: hugepages
             mountPath: /dev/hugepages
           - name: config-versions
@@ -183,11 +174,9 @@ spec:
               name: osvbng-dataplane-template
           - configMap:
               name: osvbng-config-template
-      {{- if .Values.osvbng.ha.enabled }}
       - name: member-config
         configMap:
           name: osvbng-members
-      {{- end }}
       - name: config-versions
         emptyDir: {}
       {{- if .Values.osvbng.mountSysKernelDebug }}

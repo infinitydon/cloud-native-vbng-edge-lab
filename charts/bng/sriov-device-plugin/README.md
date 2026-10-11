@@ -1,6 +1,6 @@
 # osvbng SR-IOV Network Device Plugin
 
-This standalone prerequisite installs upstream SR-IOV Network Device Plugin
+This separately installed prerequisite installs upstream SR-IOV Network Device Plugin
 v3.11.0 only on explicitly labeled BNG workers. Helm ignores this directory.
 
 The plugin advertises `qemu-virtio-dpdk.dev/osvbng_vfio`. A device must match

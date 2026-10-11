@@ -1,4 +1,4 @@
-# Cloud-Native vBNG Edge Lab
+# Cloud-Native vBNG Edge
 
 This repository deploys a compact broadband edge on Kubernetes. OSVBNG and
 VPP terminate subscriber sessions on DPDK interfaces, FreeRADIUS provides AAA,
@@ -69,7 +69,6 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 
 helm upgrade --install osvbng charts/bng \
   --namespace "$NAMESPACE" \
-  --values charts/frr-isp/bng-values.yaml \
   --wait --timeout 15m
 
 helm upgrade --install osvbng-frr charts/frr-isp \
@@ -82,9 +81,13 @@ helm upgrade --install osvbng-cpe-lab charts/cpe-lab \
   --wait --timeout 10m
 ```
 
-The BNG chart defaults to two HA members. HA keeps the lab service available,
-but the demonstration can focus on a single active BNG and the subscriber data
-path. See `charts/bng/README.md` for standalone mode.
+The main BNG values file is the supported two-member HA configuration. It uses
+explicit member addresses and eBGP to the FRR pair; no additional BNG profile
+file is required.
+
+Automatic recovery of subscriber forwarding after a hard BNG failure is still
+being improved upstream. Validate the behavior of the selected OSVBNG release
+and switching environment before production use.
 
 ## Validation
 

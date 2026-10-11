@@ -7,7 +7,6 @@ kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -
 
 helm upgrade --install osvbng charts/bng \
   --namespace "$namespace" \
-  --values charts/frr-isp/bng-values.yaml \
   --wait --timeout 15m
 
 helm upgrade --install osvbng-frr charts/frr-isp \

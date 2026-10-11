@@ -4,17 +4,9 @@ See [`../DEPLOYMENT.md`](../DEPLOYMENT.md) for the complete ordered platform
 installation. This file is the BNG-specific reference.
 
 This chart deploys upstream OSVBNG `v0.16.0` with direct VFIO/DPDK devices,
-native PBA CGNAT, optional active/standby HA, BGP, and an optional
+native PBA CGNAT, two-member active/standby HA, BGP, and an optional
 FreeRADIUS 3.2.7/PostgreSQL profile. Subscriber simulation now lives in the
 separate `../cpe-lab` chart.
-
-An experimental image built from upstream HA-fix PR #400 is available through
-`examples/ha-fix-image-values.yaml`. Upstream test 37 passed 20/20, including
-fresh bidirectional post-switchover traffic with no session flaps. The
-Kubernetes/VFIO topology also restored all 20 sessions and CGNAT mappings, but
-traffic took 244 seconds to recover while the virtual MAC moved between worker
-VMs. The image therefore remains experimental until L2/FDB convergence is
-made suitably fast for HA.
 
 ## Prerequisites
 
@@ -38,17 +30,14 @@ kubectl rollout status -n kube-system daemonset/osvbng-sriov-device-plugin
 
 ## Install
 
-Standalone mode uses `examples/standalone-values.yaml`. The current routed HA
-lab uses `examples/ha-values.yaml` together with the FRR integration values.
-Addresses are explicitly tied to StatefulSet identity; no IP arithmetic is
-used.
+The main `values.yaml` is the complete routed HA configuration. Addresses are
+explicitly tied to StatefulSet identity; no IP arithmetic or secondary BNG
+values file is used.
 
 ```shell
 helm lint ./helm-chart/bng
 helm upgrade --install osvbng ./helm-chart/bng \
   --namespace osvbng-ha --create-namespace \
-  --values ./helm-chart/frr-isp/bng-values.yaml \
-  --values ./helm-chart/bng/examples/radius-values.yaml \
   --wait --timeout 10m
 ```
 
@@ -63,6 +52,10 @@ The routed HA profile uses:
 Only the active BNG advertises the CGNAT prefix. Advertising the private
 subscriber prefix is conditional through `osvbng.bgp.advertiseSubscriberPrefix`
 and is disabled for ordinary CGNAT Internet service.
+
+Automatic recovery of subscriber forwarding after a hard BNG failure is still
+being improved upstream. Validate it with the selected OSVBNG release and the
+target switching environment before production use.
 
 ## RADIUS
 
@@ -83,6 +76,9 @@ Create the shared secret before installation:
 kubectl create secret generic osvbng-radius -n osvbng-ha \
   --from-literal=shared-secret='replace-me'
 ```
+
+Then add `--values ./helm-chart/bng/examples/radius-values.yaml` to the Helm
+install command.
 
 ## Validate
 
