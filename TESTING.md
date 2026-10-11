@@ -95,23 +95,40 @@ Both FRR routers reached the MikroTik gateway `192.168.88.1` with 0% loss:
 - FRR-A: 3/3 replies, 2.996 ms average.
 - FRR-B: 3/3 replies, 6.353 ms average.
 
-The BNG-to-FRR BGP sessions were established, but the MikroTik reset both FRR
-BGP connections after receiving their OPEN messages. Consequently, the FRRs
-did not learn a default route and the BNGs retained a drop default. An actual
-UE Internet test from `cpe1` therefore produced:
+After the MikroTik peers were updated to `192.168.88.12` and `.13`, both eBGP
+sessions reached `ESTABLISHED`. Each FRR learned and installed `0.0.0.0/0`
+through `192.168.88.1`, and both BNGs installed resolved ECMP default paths
+through `172.31.255.4` and `172.31.255.5`.
 
-```text
-PING 4.2.2.2 (4.2.2.2) 56(84) bytes of data.
+Three ICMP requests were then sent from every UE namespace to Internet address
+`4.2.2.2`:
 
---- 4.2.2.2 ping statistics ---
-3 packets transmitted, 0 received, 100% packet loss
-```
+| Session | Namespace | Loss | Average RTT |
+|---:|---|---:|---:|
+| 1 | `cpe1` | 0% | 8.473 ms |
+| 2 | `cpe2` | 0% | 7.831 ms |
+| 3 | `cpe3` | 0% | 14.573 ms |
+| 4 | `cpe4` | 0% | 11.576 ms |
+| 5 | `cpe5` | 0% | 7.261 ms |
+| 6 | `cpe6` | 0% | 9.208 ms |
+| 7 | `cpe7` | 0% | 10.881 ms |
+| 8 | `cpe8` | 0% | 7.250 ms |
+| 9 | `cpe9` | 0% | 8.038 ms |
+| 10 | `cpe10` | 0% | 7.374 ms |
+| 11 | `cpe11` | 0% | 8.055 ms |
+| 12 | `cpe12` | 0% | 12.654 ms |
+| 13 | `cpe13` | 0% | 7.077 ms |
+| 14 | `cpe14` | 0% | 16.966 ms |
+| 15 | `cpe15` | 0% | 7.595 ms |
+| 16 | `cpe16` | 0% | 7.088 ms |
+| 17 | `cpe17` | 0% | 9.032 ms |
+| 18 | `cpe18` | 0% | 10.544 ms |
+| 19 | `cpe19` | 0% | 8.090 ms |
+| 20 | `cpe20` | 0% | 8.420 ms |
 
-The in-cluster subscriber path, HA peer connection, BNG-to-FRR routing, CGNAT
-allocation, and all 20 UE namespaces are working. End-to-end Internet testing
-must be repeated after the MikroTik BGP peers for `192.168.88.12` and
-`192.168.88.13` accept ASN `65020`; the required configuration is in
-[charts/frr-isp/MIKROTIK.md](charts/frr-isp/MIKROTIK.md).
+Result: 60/60 Internet ICMP replies, 0% loss across all 20 sessions. The
+subscriber path, CGNAT, BNG-to-FRR ECMP, FRR-to-MikroTik BGP, and upstream NAT
+all passed end to end.
 
 Automatic subscriber-forwarding recovery after a hard BNG failure is still
 being improved upstream and was not part of this validation.
