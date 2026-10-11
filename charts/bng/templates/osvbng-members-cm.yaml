@@ -1,5 +1,6 @@
 {{- if ne (len .Values.osvbng.ha.members) 2 }}
 {{- fail "osvbng.ha.members must contain exactly two members" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,4 +14,3 @@ data:
     OSVBNG_HA_PREEMPT={{ $member.preempt | quote }}
     OSVBNG_HA_PEER_ORDINAL={{ ternary "1" "0" (eq $index 0) | quote }}
   {{- end }}
-{{- end }}
