@@ -1,5 +1,5 @@
 osvbng:
-  image: "docker.io/veesixnetworks/osvbng:v0.16.0@sha256:d343e3e6f1bec38e011cda569fc799ab99927aee189e6a7dd45c073a5a462782"
+  image: "ghcr.io/infinitydon/osvbng:main-753e934@sha256:d3d2f3e815184b86367bf2d3cb2e749b11d0d7025b88623886910af82e9da108"
   pullPolicy: IfNotPresent
   imagePullSecrets: []
   privileged: true

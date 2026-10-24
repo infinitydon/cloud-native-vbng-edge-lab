@@ -132,3 +132,27 @@ all passed end to end.
 
 Automatic subscriber-forwarding recovery after a hard BNG failure is still
 being improved upstream and was not part of this validation.
+
+## Upstream HA fix validation — 24 October 2026
+
+The BNG image was rebuilt from upstream commit `753e934` and pinned by digest
+as `ghcr.io/infinitydon/osvbng:main-753e934`. The two-member StatefulSet was
+rolled to this image and tested with 20 IPoE sessions.
+
+Graceful switchover passed in both directions:
+
+| Direction | New active | Restored sessions | CGNAT mappings | GARPs | Proxmox FDB | UE Internet pings |
+|---|---|---:|---:|---:|---|---:|
+| BNG-A to BNG-B | `osvbng-1` | 20 | 20 | 20 | `tap167i8` to `tap166i8` | 20/20 |
+| BNG-B to BNG-A | `osvbng-0` | 20 | 20 | 20 | `tap166i8` to `tap167i8` | 20/20 |
+
+Both directions retained BGP reachability through the two FRRs. The reverse
+promotion specifically logged `Starting GARP flood` and sent all 20 GARPs,
+confirming the merged switch-back fix.
+
+A separate hard-stop test removed the active member while leaving its peer.
+The peer reached `STANDBY_ALONE` but did not autonomously promote to `ACTIVE`,
+including when the remaining member had `preempt: true`. The deployment was
+restored to two healthy members (`ACTIVE`/`STANDBY`) with 20 sessions and 20/20
+Internet pings. Automatic hard-failure promotion therefore remains upstream
+work; the merged fix validates graceful bidirectional switchover only.
