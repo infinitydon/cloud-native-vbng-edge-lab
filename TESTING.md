@@ -150,9 +150,14 @@ Both directions retained BGP reachability through the two FRRs. The reverse
 promotion specifically logged `Starting GARP flood` and sent all 20 GARPs,
 confirming the merged switch-back fix.
 
-A separate hard-stop test removed the active member while leaving its peer.
-The peer reached `STANDBY_ALONE` but did not autonomously promote to `ACTIVE`,
-including when the remaining member had `preempt: true`. The deployment was
-restored to two healthy members (`ACTIVE`/`STANDBY`) with 20 sessions and 20/20
-Internet pings. Automatic hard-failure promotion therefore remains upstream
-work; the merged fix validates graceful bidirectional switchover only.
+A separate hard-failure test followed the upstream procedure: remove the active
+member, wait for its peer to enter the split-brain-safe `STANDBY_ALONE` state,
+then force-promote the survivor after the failed member is fenced. The survivor
+became `ACTIVE`, restored 20 subscriber sessions and 20 CGNAT mappings, sent 20
+GARPs, moved the Proxmox FDB entry, and passed 20/20 Internet pings. Restoring
+the second member returned the pair to healthy `ACTIVE`/`STANDBY` operation.
+
+`preempt` does not authorize automatic promotion after peer loss; it controls
+election/preemption while both peers exchange heartbeats. An external HA
+controller or operator must confirm fencing and request forced promotion from
+`STANDBY_ALONE`, matching the upstream hard-failover tests.
